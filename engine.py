@@ -1,10 +1,3 @@
-"""
-engine.py  —  SD Solver  Week 2
-Handles all input validation and (stub) symbolic computation.
-
-validate_and_compute() returns a single result dict consumed by main.py.
-"""
-
 import sys
 from datetime import datetime
 
@@ -47,6 +40,7 @@ class DerivativeEngine:
         raw_var: str,
         raw_order: str,
         raw_point: str,
+        logger=None,
     ) -> dict:
         """
         Run all validation checks, then compute if valid.
@@ -54,6 +48,17 @@ class DerivativeEngine:
         """
         result = self._base_result(raw_fx, raw_var, raw_order, raw_point)
         steps  = result["validation_steps"]
+
+        # ── Write trail header + GIVEN via logger ─────────────────────────
+        if logger:
+            logger.write_header()
+            logger.open_section("GIVEN")
+            var_label = raw_var if raw_var else "x"
+            logger.add_kv(f"f({var_label})", raw_fx if raw_fx else "(empty)")
+            logger.add_kv("Variable", raw_var if raw_var else "(empty)")
+            logger.add_kv("Order (n)", raw_order if raw_order else "(empty)")
+            logger.add_kv("Evaluate at", raw_point if raw_point else "Not specified")
+            logger.add_blank()
 
         # ── Check 1: f(x) not empty ──────────────────────────────────────────
         if not raw_fx:
@@ -160,6 +165,24 @@ class DerivativeEngine:
             steps.append(self._step(6, "Evaluate at x — numeric (opt)", "PASS",
                                     "Field is blank — evaluation will be skipped."))
 
+        # ── Write VALIDATION section via logger ──────────────────────────────
+        if logger:
+            from trail_logger import DIV
+            logger._write("① VALIDATION\n", "section")
+            logger._write(DIV + "\n", "dim")
+            for check in steps:
+                icon = {"PASS": "✔", "FAIL": "✘", "SKIP": "○", "WARN": "⚠"}.get(check["status"], " ")
+                tag  = {"PASS": "pass", "FAIL": "fail", "SKIP": "dim", "WARN": "warn"}.get(check["status"], "step")
+                logger._write(f"   Step {check['num']}  {check['label']}\n", "step")
+                detail = f"  —  {check['detail']}" if check.get("detail") else ""
+                logger._write(f"           {icon}  {check['status']}{detail}\n\n", tag)
+            if not result["ok"]:
+                logger._write("   ✘  Computation aborted — correct errors and retry.\n", "fail")
+                from trail_logger import HDIV
+                logger._write("\n" + HDIV + "\n", "dim")
+            else:
+                logger._write("   ✔  All checks passed — proceeding to computation.\n\n", "pass")
+
         # ── Bail if any validation failed ─────────────────────────────────────
         if not result["ok"]:
             return result
@@ -185,6 +208,51 @@ class DerivativeEngine:
             return result
 
         result["timestamp"] = datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
+
+        # ── Write remaining trail sections via logger ──────────────────────
+        if logger:
+            # Write validation result
+            logger.open_section("METHOD")
+            logger.add_kv("Name", "Symbolic Differentiation (Basic Rules)")
+            logger.add_kv("Rules applied", "Power, Constant, Sum/Difference,")
+            logger.add_step("Constant Multiple, Chain, Product, Quotient", "dim")
+            logger.add_kv("Library", f"SymPy {SYMPY_VERSION}")
+            logger.add_blank()
+
+            logger.open_section("STEPS")
+            logger.add_step(f"Parse f({result['var']}) into symbolic expression tree", "step")
+            logger.add_detail(f"Expression  :  {raw_fx}", "rule")
+            logger.add_step("Identify each term and applicable rule", "step")
+            logger.add_detail("[rule detection will populate in Week 4]", "rule")
+            logger.add_step(f"Apply derivative rule term-by-term  (n={result['order']} pass(es))", "step")
+            logger.add_detail(f"d/d{result['var']} [terms] = ...", "rule")
+            logger.add_step("Simplify / collect like terms", "step")
+            logger.add_detail(f"Result  :  {result['answer']}", "answer")
+            if result.get("point_value") is not None:
+                logger.add_step(f"Evaluate  f'({raw_point})", "step")
+                logger.add_detail(f"f'({raw_point})  =  {result['point_value']}", "answer")
+            logger.add_blank()
+
+            logger.open_section("FINAL ANSWER")
+            logger.add_step(
+                f"d^{result['order']}/d{result['var']}^{result['order']} [{raw_fx}]  =  {result['answer']}",
+                "answer"
+            )
+            logger.add_blank()
+
+            logger.open_section("VERIFICATION")
+            logger.add_kv("Method", "")
+            logger.add_kv("Check", "")
+            logger.add_kv("Status", "", "verify")
+            logger.add_blank()
+
+            logger.open_section("SUMMARY")
+            logger.add_kv("Timestamp", result["timestamp"])
+            logger.add_kv("Python", result["python_version"])
+            logger.add_kv("SymPy", result["sympy_version"])
+            logger.add_kv("Status", "")
+            logger.close()
+
         return result
 
     # ── Helpers ───────────────────────────────────────────────────────────────

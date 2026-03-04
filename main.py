@@ -1,14 +1,10 @@
-"""
-Symbolic Derivative Generator  —  SD Solver
-Week 2: Input Validation + Error Messaging
-"""
-
 import tkinter as tk
 from tkinter import scrolledtext, font
 from datetime import datetime
 import sys
 
 from engine import DerivativeEngine
+from trail_logger import TrailLogger
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 BG_DARK  = "#0D0F14"
@@ -28,7 +24,7 @@ OK_GRN   = "#7DF9C2"
 class DerivativeApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("∂ SD Solver  —  Week 2")
+        self.title("∂ SD Solver")
         self.geometry("980x740")
         self.minsize(820, 600)
         self.configure(bg=BG_DARK)
@@ -56,7 +52,7 @@ class DerivativeApp(tk.Tk):
         tk.Label(header, text="∂  SD SOLVER  —  SYMBOLIC DERIVATIVE GENERATOR",
                  font=self.f_title, fg=ACCENT, bg=BG_PANEL
                  ).pack(side="left", padx=22, pady=14)
-        tk.Label(header, text="Basic Rules Engine  //  Week 2",
+        tk.Label(header, text="",
                  font=self.f_sub, fg=TEXT_SEC, bg=BG_PANEL
                  ).pack(side="right", padx=22, pady=20)
 
@@ -72,6 +68,8 @@ class DerivativeApp(tk.Tk):
         left.pack_propagate(False)
         self._build_left(left)
         self._build_right(right)
+        # Logger assigned here — after trail_text widget exists
+        self.logger = TrailLogger(self.trail_text)
 
     # ── Left panel ────────────────────────────────────────────────────────────
     def _build_left(self, parent):
@@ -304,7 +302,7 @@ class DerivativeApp(tk.Tk):
     # ── Clear ─────────────────────────────────────────────────────────────────
     def _on_clear(self):
         self._clear_all_errors()
-        self._trail_clear()
+        self.logger.clear()
         self.lbl_answer.config(text="—", fg=GOLD)
         self.status_var.set("Cleared — ready for new input")
         for entry, ph in [
@@ -326,16 +324,13 @@ class DerivativeApp(tk.Tk):
         raw_order = self._real_value(self.entry_order)
         raw_point = self._real_value(self.entry_point)
 
-        self._trail_clear()
+        self.logger.clear()
         self.lbl_answer.config(text="…", fg=TEXT_SEC)
         self.status_var.set("Validating inputs …")
         self.update_idletasks()
 
         # ── Run validation through engine ─────────────────────────────────
-        result = self.engine.validate_and_compute(raw_fx, raw_var, raw_order, raw_point)
-
-        # ── Write trail ───────────────────────────────────────────────────
-        self._write_trail(result)
+        result = self.engine.validate_and_compute(raw_fx, raw_var, raw_order, raw_point, self.logger)
 
         # ── Update answer label ───────────────────────────────────────────
         if result["ok"]:
@@ -363,8 +358,8 @@ class DerivativeApp(tk.Tk):
         self._trail_write("║   SD SOLVER  —  SOLUTION TRAIL                               ║\n", "header")
         self._trail_write("╚══════════════════════════════════════════════════════════════╝\n\n", "header")
 
-        # ① GIVEN
-        self._trail_write("① GIVEN\n", "section")
+        # ⓪ GIVEN
+        self._trail_write("⓪ GIVEN\n", "section")
         self._trail_write(DIV, "dim")
         self._trail_write(f"   f({r['var']})           =  {r['raw_fx']}\n", "step")
         self._trail_write(f"   Variable        =  {r['raw_var']}\n", "step")
@@ -433,7 +428,7 @@ class DerivativeApp(tk.Tk):
         self._trail_write(DIV, "dim")
         self._trail_write("   Method          :  Symbolic back-substitution check\n", "verify")
         self._trail_write("   Check           :  Integrate result → compare to f(x) + C\n", "verify")
-        self._trail_write("   Residual        :  [will be computed in Week 9]\n", "verify")
+        self._trail_write("   Residual        :  \n", "verify")
         self._trail_write("   Status          :  ⏳ Pending full verification engine\n\n", "verify")
 
         # ⑦ SUMMARY
