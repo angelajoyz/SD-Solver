@@ -24,7 +24,7 @@ OK_GRN   = "#7DF9C2"
 class DerivativeApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("∂ SD Solver")
+        self.title("∂ SD Solver  —  Week 2")
         self.geometry("980x740")
         self.minsize(820, 600)
         self.configure(bg=BG_DARK)
@@ -52,7 +52,7 @@ class DerivativeApp(tk.Tk):
         tk.Label(header, text="∂  SD SOLVER  —  SYMBOLIC DERIVATIVE GENERATOR",
                  font=self.f_title, fg=ACCENT, bg=BG_PANEL
                  ).pack(side="left", padx=22, pady=14)
-        tk.Label(header, text="",
+        tk.Label(header, text="Basic Rules Engine  //  Week 2",
                  font=self.f_sub, fg=TEXT_SEC, bg=BG_PANEL
                  ).pack(side="right", padx=22, pady=20)
 
@@ -80,7 +80,7 @@ class DerivativeApp(tk.Tk):
         self._section_label(parent, "f(x) =")
         self.entry_fx = self._entry(parent)
         self.err_fx = self._error_label(parent)
-        self._add_placeholder(self.entry_fx, "x**3 + 2*x**2 - 5*x + 1")
+        self._add_placeholder(self.entry_fx, "x^3 + 2x^2 - 5x + 1")
 
         # Variable
         self._section_label(parent, "Variable")
@@ -130,9 +130,9 @@ class DerivativeApp(tk.Tk):
         tk.Label(parent, text="Sample Problems", font=self.f_label,
                  fg=GOLD, bg=BG_DARK).pack(anchor="w", pady=(18, 4))
         samples = [
-            ("1", "x**3 + 2*x**2 - 5*x + 1", "1", ""),
-            ("2", "3*x**4 - 7*x**2 + 2",      "2", ""),
-            ("3", "x**2 * sin(x)",             "1", "0"),
+            ("1", "x^3 + 2x^2 - 5x + 1", "1", ""),
+            ("2", "3x^4 - 7x^2 + 2",      "2", ""),
+            ("3", "x^2 * sin(x)",             "1", "0"),
         ]
         for num, fx, order, pt in samples:
             row = tk.Frame(parent, bg=BG_INPUT, pady=4)
@@ -241,17 +241,6 @@ class DerivativeApp(tk.Tk):
         ]:
             self._clear_field_error(entry, lbl)
 
-    def _trail_write(self, text, tag="step"):
-        self.trail_text.configure(state="normal")
-        self.trail_text.insert("end", text, tag)
-        self.trail_text.configure(state="disabled")
-        self.trail_text.see("end")
-
-    def _trail_clear(self):
-        self.trail_text.configure(state="normal")
-        self.trail_text.delete("1.0", "end")
-        self.trail_text.configure(state="disabled")
-
     def _load_sample(self, fx, order, pt):
         self._clear_all_errors()
         for entry, val in [
@@ -306,7 +295,7 @@ class DerivativeApp(tk.Tk):
         self.lbl_answer.config(text="—", fg=GOLD)
         self.status_var.set("Cleared — ready for new input")
         for entry, ph in [
-            (self.entry_fx,    "x**3 + 2*x**2 - 5*x + 1"),
+            (self.entry_fx,    "x^3 + 2x^2 - 5x + 1"),
             (self.entry_var,   "x"),
             (self.entry_order, "1"),
             (self.entry_point, "2.5   (leave blank to skip)"),
@@ -349,97 +338,6 @@ class DerivativeApp(tk.Tk):
                     self._set_field_error(self.entry_order, self.err_order, msg)
                 elif field == "point":
                     self._set_field_error(self.entry_point, self.err_point, msg)
-
-    # ── Trail renderer ────────────────────────────────────────────────────────
-    def _write_trail(self, r):
-        DIV = "─" * 62 + "\n"
-
-        self._trail_write("╔══════════════════════════════════════════════════════════════╗\n", "header")
-        self._trail_write("║   SD SOLVER  —  SOLUTION TRAIL                               ║\n", "header")
-        self._trail_write("╚══════════════════════════════════════════════════════════════╝\n\n", "header")
-
-        # ⓪ GIVEN
-        self._trail_write("⓪ GIVEN\n", "section")
-        self._trail_write(DIV, "dim")
-        self._trail_write(f"   f({r['var']})           =  {r['raw_fx']}\n", "step")
-        self._trail_write(f"   Variable        =  {r['raw_var']}\n", "step")
-        self._trail_write(f"   Order (n)       =  {r['raw_order']}\n", "step")
-        self._trail_write(f"   Evaluate at     =  {r['raw_point'] if r['raw_point'] else 'Not specified'}\n\n", "step")
-
-        # ② VALIDATION
-        self._trail_write("② VALIDATION\n", "section")
-        self._trail_write(DIV, "dim")
-        for check in r["validation_steps"]:
-            num   = check["num"]
-            label = check["label"]
-            status = check["status"]   # "PASS" | "FAIL" | "SKIP" | "WARN"
-            detail = check.get("detail", "")
-
-            tag = {"PASS": "pass", "FAIL": "fail", "WARN": "warn", "SKIP": "dim"}.get(status, "step")
-            icon = {"PASS": "✔", "FAIL": "✘", "WARN": "⚠", "SKIP": "○"}.get(status, " ")
-
-            self._trail_write(f"   Step {num}  {label}\n", "step")
-            self._trail_write(f"           {icon}  {status}", tag)
-            if detail:
-                self._trail_write(f"  —  {detail}", tag)
-            self._trail_write("\n\n", "step")
-
-        if not r["ok"]:
-            self._trail_write("   ✘  Computation aborted — correct the errors above and retry.\n", "fail")
-            self._trail_write("\n" + "═" * 62 + "\n", "dim")
-            return
-
-        self._trail_write("   ✔  All checks passed — proceeding to computation.\n\n", "pass")
-
-        # ③ METHOD
-        self._trail_write("③ METHOD\n", "section")
-        self._trail_write(DIV, "dim")
-        self._trail_write(f"   Name            :  Symbolic Differentiation (Basic Rules)\n", "step")
-        self._trail_write(f"   Rules applied   :  Power, Constant, Sum/Difference,\n", "step")
-        self._trail_write(f"                      Constant Multiple, Chain, Product, Quotient\n", "step")
-        self._trail_write(f"   Library         :  SymPy {r['sympy_version']}\n\n", "step")
-
-        # ④ STEPS  (placeholder — full engine Week 4)
-        self._trail_write("④ STEPS  [placeholder — full rule engine in Week 4]\n", "section")
-        self._trail_write(DIV, "dim")
-        var = r["var"]
-        fx  = r["raw_fx"]
-        n   = r["order"]
-        self._trail_write(f"   Step 1  Parse f({var}) into symbolic expression tree\n", "step")
-        self._trail_write(f"           → Expression  :  {fx}\n\n", "rule")
-        self._trail_write(f"   Step 2  Identify each term and applicable rule\n", "step")
-        self._trail_write(f"           → [rule detection will populate in Week 4]\n\n", "rule")
-        self._trail_write(f"   Step 3  Apply derivative rule term-by-term  (n={n} pass(es))\n", "step")
-        self._trail_write(f"           → d/d{var} [terms] = ...\n\n", "rule")
-        self._trail_write(f"   Step 4  Simplify / collect like terms\n", "step")
-        self._trail_write(f"           → {r['answer']}\n\n", "rule")
-
-        if r.get("point_value") is not None:
-            self._trail_write(f"   Step 5  Evaluate  f'({r['raw_point']})\n", "step")
-            self._trail_write(f"           → f'({r['raw_point']})  =  {r['point_value']}\n\n", "rule")
-
-        # ⑤ FINAL ANSWER
-        self._trail_write("⑤ FINAL ANSWER\n", "section")
-        self._trail_write(DIV, "dim")
-        self._trail_write(f"   d^{n}/d{var}^{n} [{fx}]  =  {r['answer']}\n\n", "answer")
-
-        # ⑥ VERIFICATION
-        self._trail_write("⑥ VERIFICATION\n", "section")
-        self._trail_write(DIV, "dim")
-        self._trail_write("   Method          :  Symbolic back-substitution check\n", "verify")
-        self._trail_write("   Check           :  Integrate result → compare to f(x) + C\n", "verify")
-        self._trail_write("   Residual        :  \n", "verify")
-        self._trail_write("   Status          :  ⏳ Pending full verification engine\n\n", "verify")
-
-        # ⑦ SUMMARY
-        self._trail_write("⑦ SUMMARY\n", "section")
-        self._trail_write(DIV, "dim")
-        self._trail_write(f"   Timestamp       :  {r['timestamp']}\n", "summary")
-        self._trail_write(f"   Python          :  {r['python_version']}\n", "summary")
-        self._trail_write(f"   SymPy           :  {r['sympy_version']}\n", "summary")
-        self._trail_write(f"   Status          :  ✅ Validation complete (Week 2)\n", "summary")
-        self._trail_write(f"   Next            :  Solution Trail logger — Week 3\n", "summary")
-        self._trail_write("\n" + "═" * 62 + "\n", "dim")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

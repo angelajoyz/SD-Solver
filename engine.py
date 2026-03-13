@@ -2,6 +2,7 @@ import sys
 from datetime import datetime
 
 import subprocess
+from rules import differentiate_with_trail
 
 try:
     import sympy
@@ -46,6 +47,14 @@ class DerivativeEngine:
         Run all validation checks, then compute if valid.
         Always returns a complete result dict so the UI only needs to read it.
         """
+        # ── Normalise input: accept ^ and implicit multiplication ────────────
+        import re as _re
+        raw_fx = raw_fx.replace("^", "**")
+        # Add * between digit and letter: 2x -> 2*x, 3x^2 -> 3*x**2
+        raw_fx = _re.sub(r'(\d)([a-zA-Z])', r'\1*\2', raw_fx)
+        # Add * between ) and (: )(  -> )*(
+        raw_fx = _re.sub(r'\)\s*\(', r')*(', raw_fx)
+
         result = self._base_result(raw_fx, raw_var, raw_order, raw_point)
         steps  = result["validation_steps"]
 
@@ -168,7 +177,7 @@ class DerivativeEngine:
         # ── Write VALIDATION section via logger ──────────────────────────────
         if logger:
             from trail_logger import DIV
-            logger._write("① VALIDATION\n", "section")
+            logger._write("⓪ VALIDATION\n", "section")
             logger._write(DIV + "\n", "dim")
             for check in steps:
                 icon = {"PASS": "✔", "FAIL": "✘", "SKIP": "○", "WARN": "⚠"}.get(check["status"], " ")
@@ -207,6 +216,26 @@ class DerivativeEngine:
             steps.append(self._step(7, "SymPy computation", "FAIL", str(exc)[:120]))
             return result
 
+        # ── Recompute answer via rule engine (replaces stub diff) ──────────
+        try:
+            from rules import differentiate_with_trail as _dw
+            _r = _dw(raw_fx, result["var"], result["order"])
+            result["answer"] = _r["answer"]
+            # Re-evaluate point with updated answer
+            if result.get("point_value") is not None:
+                from sympy import symbols as _sym, sympify as _symp, diff as _diff
+                _x   = _sym(result["var"])
+                _f   = _symp(raw_fx)
+                _d   = _diff(_f, _x, result["order"])
+                from sympy import simplify as _simp
+                _d   = _simp(_d)
+                try:
+                    result["point_value"] = str(float(_d.subs(_x, float(raw_point))))
+                except Exception:
+                    pass
+        except Exception:
+            pass  # fall back to existing answer
+
         result["timestamp"] = datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
 
         # ── Write remaining trail sections via logger ──────────────────────
@@ -219,17 +248,20 @@ class DerivativeEngine:
             logger.add_kv("Library", f"SymPy {SYMPY_VERSION}")
             logger.add_blank()
 
+            # ── Run rule engine and write real STEPS ─────────────────────────
+            rule_result = differentiate_with_trail(raw_fx, result["var"], result["order"])
+            result["answer"] = rule_result["answer"]
+
             logger.open_section("STEPS")
-            logger.add_step(f"Parse f({result['var']}) into symbolic expression tree", "step")
-            logger.add_detail(f"Expression  :  {raw_fx}", "rule")
-            logger.add_step("Identify each term and applicable rule", "step")
-            logger.add_detail("[rule detection will populate in Week 4]", "rule")
-            logger.add_step(f"Apply derivative rule term-by-term  (n={result['order']} pass(es))", "step")
-            logger.add_detail(f"d/d{result['var']} [terms] = ...", "rule")
-            logger.add_step("Simplify / collect like terms", "step")
-            logger.add_detail(f"Result  :  {result['answer']}", "answer")
+            for step in rule_result["steps"]:
+                if step["tag"] == "detail":
+                    logger.add_detail(step["text"])
+                elif step["tag"] == "answer":
+                    logger.add_step(step["text"], "answer")
+                else:
+                    logger.add_step(step["text"])
             if result.get("point_value") is not None:
-                logger.add_step(f"Evaluate  f'({raw_point})", "step")
+                logger.add_step(f"Evaluate  f'({raw_point})")
                 logger.add_detail(f"f'({raw_point})  =  {result['point_value']}", "answer")
             logger.add_blank()
 
@@ -241,16 +273,17 @@ class DerivativeEngine:
             logger.add_blank()
 
             logger.open_section("VERIFICATION")
-            logger.add_kv("Method", "")
-            logger.add_kv("Check", "")
-            logger.add_kv("Status", "", "verify")
+            logger.add_kv("Method", "Symbolic back-substitution check")
+            logger.add_kv("Check", "Integrate result → compare to f(x) + C")
+            logger.add_kv("Status", "⏳ Pending — Week 9", "verify")
             logger.add_blank()
 
             logger.open_section("SUMMARY")
             logger.add_kv("Timestamp", result["timestamp"])
             logger.add_kv("Python", result["python_version"])
             logger.add_kv("SymPy", result["sympy_version"])
-            logger.add_kv("Status", "")
+            logger.add_kv("Status", "✅ Trail logger complete (Week 3)")
+            logger.add_kv("Next", "Full rule engine — Week 4")
             logger.close()
 
         return result

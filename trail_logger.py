@@ -7,7 +7,7 @@ SECTIONS = [
 ]
 
 SECTION_ICONS = {
-    "GIVEN":        "⓪",
+    "GIVEN":        "①",
     "METHOD":       "②",
     "STEPS":        "③",
     "FINAL ANSWER": "④",
