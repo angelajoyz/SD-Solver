@@ -63,9 +63,16 @@ class DerivativeEngine:
         def blank():
             w("\n", "dim")
 
+        # ── header ────────────────────────────────────────────────────────────
         w("╔" + "═" * 62 + "╗\n", "header")
         w("║   SD SOLVER  —  SOLUTION TRAIL" + " " * 30 + "║\n", "header")
         w("╚" + "═" * 62 + "╝\n\n", "header")
+
+        # ── METHOD BADGE — clearly identifies which method is being used ──────
+        w("   ┌─────────────────────────────────────────────┐\n", "dim")
+        w("   │  METHOD :  Symbolic Differentiation         │\n", "header")
+        w("   │  ENGINE  :  Exact (SymPy)                   │\n", "dim")
+        w("   └─────────────────────────────────────────────┘\n\n", "dim")
 
         section("GIVEN")
         var_label = raw_var if raw_var else "x"
@@ -232,7 +239,7 @@ class DerivativeEngine:
 
         result["timestamp"] = datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
 
-        # ── METHOD ───────────────────────────────────────────────────────────
+        # ── METHOD ────────────────────────────────────────────────────────────
         section("METHOD")
         kv("Name", "Symbolic Differentiation (Basic Rules)")
         kv("Rules applied", "Power, Constant, Sum/Difference,")
@@ -278,6 +285,7 @@ class DerivativeEngine:
         kv("Status", "Pending", "verify")
         blank()
 
+        # ── SUMMARY ───────────────────────────────────────────────────────────
         section("SUMMARY")
         kv("Timestamp",   result["timestamp"])
         kv("Python",      result["python_version"])
