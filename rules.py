@@ -7,14 +7,17 @@ from sympy import (
 
 _SUP = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
 
+
 def sup(n) -> str:
     return str(n).translate(_SUP)
+
 
 def to_hat(expr) -> str:
     s = str(expr)
     s = re.sub(r'\*\*', '^', s)
     s = re.sub(r'(\d)\*([a-zA-Z])', r'\1\2', s)
     return s
+
 
 def fmt_term(coeff, var_str, exp_val) -> str:
     try:
@@ -31,6 +34,7 @@ def fmt_term(coeff, var_str, exp_val) -> str:
         return f"-{var_str}{exp_str}"
     else:
         return f"{c}{var_str}{exp_str}"
+
 
 def identify_rule(term, var) -> str:
     if not term.free_symbols or var not in term.free_symbols:
@@ -55,6 +59,7 @@ def identify_rule(term, var) -> str:
         return "Basic Function Rule" if any(a == var for a in term.args) else "Chain Rule"
     return "General Rule (SymPy)"
 
+
 def extract_ce(term, var):
     if not term.free_symbols or var not in term.free_symbols:
         return None
@@ -78,6 +83,14 @@ def extract_ce(term, var):
 
 
 def differentiate_with_trail(expr_str: str, var_str: str, order: int) -> dict:
+    """
+    Returns:
+        {
+            "answer"  : str,
+            "steps"   : list of {"text": str, "tag": str},
+            "method"  : "Symbolic Differentiation",
+        }
+    """
     x    = symbols(var_str)
     expr = sympify(expr_str)
     steps = []
@@ -116,7 +129,11 @@ def differentiate_with_trail(expr_str: str, var_str: str, order: int) -> dict:
         s(f"= {_clean(str(final))}", "answer")
         for step in steps:
             step["text"] = _clean(step["text"])
-        return {"answer": _clean(str(final)), "steps": steps}
+        return {
+            "answer": _clean(str(final)),
+            "steps":  steps,
+            "method": "Symbolic Differentiation",
+        }
 
     is_sum     = isinstance(expr, Add)
     terms      = expr.as_ordered_terms() if is_sum else [expr]
@@ -220,4 +237,8 @@ def differentiate_with_trail(expr_str: str, var_str: str, order: int) -> dict:
         step["text"] = clean(step["text"])
 
     answer_str = clean(str(simplify(diff(expr, x, order))))
-    return {"answer": answer_str, "steps": steps}
+    return {
+        "answer": answer_str,
+        "steps":  steps,
+        "method": "Symbolic Differentiation",
+    }
