@@ -56,9 +56,15 @@ class DerivativeApp(tk.Tk):
         tk.Label(header, text="∂  SD SOLVER  —  SYMBOLIC DERIVATIVE GENERATOR",
                  font=self.f_title, fg=ACCENT, bg=BG_PANEL
                  ).pack(side="left", padx=22, pady=14)
+        tk.Button(header, text="?  ABOUT / HELP",
+                  font=self.f_sub, fg=BG_DARK, bg=ACCENT2,
+                  activebackground="#D96BB8", activeforeground=BG_DARK,
+                  relief="flat", bd=0, padx=10, pady=4, cursor="hand2",
+                  command=self._show_about
+                  ).pack(side="right", padx=12, pady=16)
         tk.Label(header, text="Basic Rules Engine",
                  font=self.f_sub, fg=TEXT_SEC, bg=BG_PANEL
-                 ).pack(side="right", padx=22, pady=20)
+                 ).pack(side="right", padx=10, pady=20)
 
         tk.Frame(self, bg=ACCENT, height=2).pack(fill="x")
 
@@ -208,6 +214,132 @@ class DerivativeApp(tk.Tk):
         self.lbl_status.pack(fill="x", pady=(2, 0))
 
     # ── method selection popup ────────────────────────────────────────────────
+    # ── about / help dialog ───────────────────────────────────────────────────
+    def _show_about(self):
+        popup = tk.Toplevel(self)
+        popup.title("About / Help — SD Solver")
+        popup.configure(bg=BG_PANEL)
+        popup.geometry("520x600")
+        popup.minsize(500, 550)
+        popup.grab_set()
+
+        # Scrollable container
+        container = tk.Frame(popup, bg=BG_PANEL)
+        container.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(container, bg=BG_PANEL, highlightthickness=0)
+        scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=BG_PANEL)
+
+        scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # ===== CONTENT =====
+        tk.Frame(scroll_frame, bg=ACCENT2, height=5).pack(fill="x")
+
+        # HEADER
+        hdr = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="∂  SD SOLVER",
+                 font=font.Font(family="Courier New", size=16, weight="bold"),
+                 fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(hdr, text="Symbolic Derivative Generator — Basic Rules Engine",
+                 font=font.Font(family="Courier New", size=9),
+                 fg=TEXT_SEC, bg=BG_PANEL).pack(anchor="w")
+
+        tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24)
+
+        # INFO
+        info = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
+        info.pack(fill="x")
+
+        def row(label, value, val_color=TEXT_PRI):
+            f = tk.Frame(info, bg=BG_PANEL)
+            f.pack(fill="x", pady=2)
+            tk.Label(f, text=f"{label:<18}",
+                     font=font.Font(family="Courier New", size=9, weight="bold"),
+                     fg=TEXT_SEC, bg=BG_PANEL).pack(side="left")
+            tk.Label(f, text=value,
+                     font=font.Font(family="Courier New", size=9),
+                     fg=val_color, bg=BG_PANEL).pack(side="left")
+
+        row("Version", "1.0.0", GOLD)
+        row("Release Date", "2025")
+        row("Language", "Python 3.9+")
+        row("GUI Toolkit", "tkinter")
+        row("Math Engine", "SymPy (symbolic exact)")
+
+        tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
+
+        # MEMBERS
+        mem = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
+        mem.pack(fill="x")
+        tk.Label(mem, text="PROJECT MEMBERS",
+                 font=font.Font(family="Courier New", size=9, weight="bold"),
+                 fg=ACCENT2, bg=BG_PANEL).pack(anchor="w", pady=(0, 6))
+
+        members = [
+            "Abella, Jonah Mark F.",
+            "Janopol, Angela Joyce E.",
+            "Pablo, Francis John C."
+        ]
+
+        for m in members:
+            f = tk.Frame(mem, bg=BG_INPUT, padx=10, pady=5)
+            f.pack(fill="x", pady=2)
+            tk.Label(f, text=m,
+                     font=font.Font(family="Courier New", size=9, weight="bold"),
+                     fg=TEXT_PRI, bg=BG_INPUT).pack(anchor="w")
+
+        tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
+
+        # HELP
+        hlp = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
+        hlp.pack(fill="x")
+        tk.Label(hlp, text="HOW TO USE",
+                 font=font.Font(family="Courier New", size=9, weight="bold"),
+                 fg=ACCENT2, bg=BG_PANEL).pack(anchor="w", pady=(0, 6))
+
+        help_lines = [
+            ("f(x)", "Enter function in Python syntax. e.g. x**3 + 2*x"),
+            ("Variable", "Single letter (x, y, t)"),
+            ("Order", "1–10"),
+            ("Evaluate", "Optional value"),
+            ("COMPUTE", "Runs solver"),
+            ("STOP", "Stops animation"),
+            ("CLEAR", "Resets fields"),
+        ]
+
+        for field, desc in help_lines:
+            f = tk.Frame(hlp, bg=BG_PANEL)
+            f.pack(fill="x", pady=2)
+            tk.Label(f, text=f"{field:<12}",
+                     font=font.Font(family="Courier New", size=9, weight="bold"),
+                     fg=GOLD, bg=BG_PANEL).pack(side="left")
+            tk.Label(f, text=desc,
+                     font=font.Font(family="Courier New", size=9),
+                     fg=TEXT_PRI, bg=BG_PANEL,
+                     wraplength=350, justify="left").pack(side="left")
+
+        tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
+
+        # CLOSE BUTTON
+        btn_f = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=12)
+        btn_f.pack(fill="x")
+        tk.Button(btn_f, text="CLOSE",
+                  font=font.Font(family="Courier New", size=10, weight="bold"),
+                  bg=ACCENT2, fg=BG_DARK,
+                  relief="flat", bd=0, padx=16, pady=6,
+                  command=popup.destroy).pack(side="right")
+
     def _show_method_popup(self, on_confirm):
         popup = tk.Toplevel(self)
         popup.title("Select Method")
