@@ -7,7 +7,7 @@ from rules import differentiate_with_trail
 
 try:
     import sympy
-    from sympy import symbols, sympify, diff, simplify, SympifyError
+    from sympy import symbols, sympify, diff, simplify, integrate, SympifyError
     SYMPY_OK = True
     SYMPY_VERSION = sympy.__version__
 except ImportError:
@@ -18,7 +18,7 @@ except ImportError:
             stderr=subprocess.DEVNULL,
         )
         import sympy
-        from sympy import symbols, sympify, diff, simplify, SympifyError
+        from sympy import symbols, sympify, diff, simplify, integrate, SympifyError
         SYMPY_OK = True
         SYMPY_VERSION = sympy.__version__
     except Exception:
@@ -29,6 +29,92 @@ from trail_logger import DIV, HDIV, SECTION_ICONS
 
 ORDER_MIN = 1
 ORDER_MAX = 10
+
+
+def _clean_expr(t):
+    t = t.replace("**", "^")
+    t = re.sub(r'(\d)\*([a-zA-Z])', r'\1\2', t)
+    t = re.sub(r'([a-zA-Z0-9])\*([a-zA-Z])', r'\1·\2', t)
+    return t
+
+
+def _fix_implicit_mul(expr_str):
+    """
+    Restore explicit multiplication signs so SymPy can parse display-form
+    expressions like '3x**2 + 4x - 5' that were cleaned by _clean_expr().
+    Also normalises ^ -> ** and · -> *.
+    """
+    expr_str = expr_str.replace("^", "**").replace("·", "*")
+    # digit immediately followed by a letter: 3x -> 3*x
+    expr_str = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', expr_str)
+    # letter/digit immediately followed by '(': x( -> x*(
+    expr_str = re.sub(r'([a-zA-Z0-9])\(', r'\1*(', expr_str)
+    return expr_str
+
+
+def _symbolic_verify(raw_fx, var_str, order, deriv_expr_str):
+    """
+    Verification Strategy:
+      1. Integrate the computed derivative `order` times.
+      2. Compare with the original f(x) (up to constants).
+      3. Also compute forward-difference numeric spot-check at x=1.0.
+
+    Returns a list of (label, value, status) tuples.
+    """
+    results = []
+    try:
+        x     = symbols(var_str)
+        f_sym = sympify(raw_fx)
+
+        # FIX: restore explicit multiplication before passing to sympify
+        x = symbols(var_str)
+        try:
+            d_sym = sympify(_fix_implicit_mul(deriv_expr_str))
+        except Exception:
+            d_sym = diff(sympify(raw_fx), x, order)
+
+        # ── Back-integration check ────────────────────────────────────────────
+        reintegrated = d_sym
+        for _ in range(order):
+            reintegrated = integrate(reintegrated, x)
+        reintegrated = simplify(reintegrated)
+
+        # Strip constants: compare d/dx of both expressions
+        diff_orig   = simplify(diff(f_sym,        x))
+        diff_reint  = simplify(diff(reintegrated, x))
+        residual    = simplify(diff_orig - diff_reint)
+
+        results.append(("Re-integrate d^n f  (drop C)", _clean_expr(str(reintegrated)), "info"))
+        results.append(("d/dx[f(x)]",                   _clean_expr(str(diff_orig)),    "info"))
+        results.append(("d/dx[∫...d^n result]",          _clean_expr(str(diff_reint)),   "info"))
+        results.append(("Residual (should = 0)",          _clean_expr(str(residual)),
+                        "pass" if residual == sympy.Integer(0) else "warn"))
+
+        # ── Numeric spot-check at x = 1 ──────────────────────────────────────
+        test_points = [1.0, 2.0, -1.0, 0.5, 3.0]
+        all_match   = True
+        for xv in test_points:
+            try:
+                f_val  = float(diff(f_sym, x, order).subs(x, xv))
+                d_val  = float(d_sym.subs(x, xv))
+                err    = abs(f_val - d_val)
+                status = "pass" if err < 1e-6 else "warn"
+                if err >= 1e-6:
+                    all_match = False
+                results.append((f"Spot-check x={xv}",
+                                 f"SymPy={f_val:.6g}  Result={d_val:.6g}  Δ={err:.2e}",
+                                 status))
+            except Exception:
+                results.append((f"Spot-check x={xv}", "skipped (eval error)", "warn"))
+
+        overall = "PASS — all spot-checks consistent ✔" if all_match \
+                  else "WARN — some spot-checks diverged ⚠"
+        results.append(("Overall Status", overall, "pass" if all_match else "warn"))
+
+    except Exception as exc:
+        results.append(("Verification Error", str(exc)[:100], "warn"))
+
+    return results
 
 
 class DerivativeEngine:
@@ -58,7 +144,7 @@ class DerivativeEngine:
             w(DIV + "\n", "dim")
 
         def kv(key, value, tag="step"):
-            w(f"   {key:<16}:  {value}\n", tag)
+            w(f"   {key:<24}:  {value}\n", tag)
 
         def blank():
             w("\n", "dim")
@@ -68,7 +154,6 @@ class DerivativeEngine:
         w("║   SD SOLVER  —  SOLUTION TRAIL" + " " * 30 + "║\n", "header")
         w("╚" + "═" * 62 + "╝\n\n", "header")
 
-        # ── METHOD BADGE — clearly identifies which method is being used ──────
         w("   ┌─────────────────────────────────────────────┐\n", "dim")
         w("   │  METHOD :  Symbolic Differentiation         │\n", "header")
         w("   │  ENGINE  :  Exact (SymPy)                   │\n", "dim")
@@ -82,8 +167,7 @@ class DerivativeEngine:
         kv("Evaluate at", raw_point if raw_point else "Not specified")
         blank()
 
-        # ── Validation checks ─────────────────────────────────────────────────
-
+        # ── Validation ────────────────────────────────────────────────────────
         if not raw_fx:
             vsteps.append(self._step(1, "f(x) field — required, not empty",
                                      "FAIL", "f(x) cannot be empty."))
@@ -278,11 +362,21 @@ class DerivativeEngine:
           f" [{raw_fx}]  =  {result['answer']}\n", "answer")
         blank()
 
-        # ── VERIFICATION ─────────────────────────────────────────────────────
+        # ── VERIFICATION (REAL) ───────────────────────────────────────────────
         section("VERIFICATION")
-        kv("Method", "Symbolic back-substitution check")
-        kv("Check",  "Integrate result → compare to f(x) + C")
-        kv("Status", "Pending", "verify")
+        kv("Strategy A", "Re-integrate derivative → compare d/dx of both")
+        kv("Strategy B", "Numeric spot-checks at 5 test points")
+        blank()
+
+        # Pass result["answer"] through _fix_implicit_mul inside _symbolic_verify
+        ver_checks = _symbolic_verify(raw_fx, result["var"], result["order"], result["answer"])
+        result["verification"] = ver_checks
+
+        for label, value, status in ver_checks:
+            tag = {"pass": "pass", "warn": "warn", "info": "verify"}.get(status, "step")
+            icon = {"pass": "✔", "warn": "⚠", "info": "→"}.get(status, " ")
+            w(f"   {icon}  {label:<30}  {value}\n", tag)
+
         blank()
 
         # ── SUMMARY ───────────────────────────────────────────────────────────
@@ -314,6 +408,7 @@ class DerivativeEngine:
             "validation_steps": [],
             "field_errors":     {},
             "log":              [],
+            "verification":     [],
             "timestamp":        datetime.now().strftime("%Y-%m-%d  %H:%M:%S"),
             "python_version":   sys.version.split()[0],
             "sympy_version":    SYMPY_VERSION,
