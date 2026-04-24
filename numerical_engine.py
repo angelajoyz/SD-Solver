@@ -3,7 +3,7 @@ from datetime import datetime
 
 try:
     import sympy
-    from sympy import symbols, sympify, SympifyError
+    from sympy import symbols, sympify, diff, simplify, SympifyError
     SYMPY_OK = True
     SYMPY_VERSION = sympy.__version__
 except ImportError:
@@ -14,7 +14,88 @@ from trail_logger import DIV, HDIV, SECTION_ICONS
 
 ORDER_MIN = 1
 ORDER_MAX = 10
-H_DEFAULT = 1e-5   # step size for finite difference
+H_DEFAULT = 1e-5
+
+
+def _numerical_verify(f, x0, order, scheme, h, approx):
+    """
+    Verification for numerical engine:
+      1. Richardson extrapolation / h-refinement (h, h/2, h/4, h/10)
+      2. Symmetric cross-check: compare forward vs backward vs central at x0
+      3. 5 test points with h vs h/10 residuals
+
+    Returns list of (label, value, status).
+    """
+    results = []
+
+    # ── Richardson / h-refinement ─────────────────────────────────────────────
+    prev = approx
+    consistent = True
+    for divisor in [2, 4, 10]:
+        try:
+            h_new   = h / divisor
+            coeffs  = [(-1) ** (order - k) * _comb(order, k) for k in range(order + 1)]
+            pts     = [x0 + (k - order / 2) * h_new for k in range(order + 1)]
+            fvals   = [f(p) for p in pts]
+            val     = sum(c * fv for c, fv in zip(coeffs, fvals)) / (h_new ** order)
+            delta   = abs(val - prev)
+            ok      = delta < 1e-3
+            if not ok:
+                consistent = False
+            results.append((f"h/{divisor} refinement",
+                             f"{val:.8g}   Δ={delta:.2e}",
+                             "pass" if ok else "warn"))
+            prev = val
+        except Exception as exc:
+            results.append((f"h/{divisor} refinement", f"error: {exc}", "warn"))
+
+    # ── Scheme cross-check ────────────────────────────────────────────────────
+    if order == 1:
+        try:
+            fp = f(x0 + h);  fm = f(x0 - h);  f0 = f(x0)
+            fwd  = (fp - f0) / h
+            bwd  = (f0 - fm) / h
+            cen  = (fp - fm) / (2 * h)
+            fwd_cen_delta = abs(fwd - cen)
+            bwd_cen_delta = abs(bwd - cen)
+            results.append(("Forward  vs Central  Δ", f"{fwd_cen_delta:.3e}",
+                             "pass" if fwd_cen_delta < 1e-3 else "warn"))
+            results.append(("Backward vs Central  Δ", f"{bwd_cen_delta:.3e}",
+                             "pass" if bwd_cen_delta < 1e-3 else "warn"))
+            if not (fwd_cen_delta < 1e-3 and bwd_cen_delta < 1e-3):
+                consistent = False
+        except Exception:
+            pass
+
+    # ── 5-point spot check: h vs h/10 ────────────────────────────────────────
+    import math
+    test_points = [x0 - 1.0, x0 - 0.5, x0, x0 + 0.5, x0 + 1.0]
+    for xv in test_points:
+        try:
+            coeffs  = [(-1) ** (order - k) * _comb(order, k) for k in range(order + 1)]
+            pts_h   = [xv + (k - order / 2) * h       for k in range(order + 1)]
+            pts_h10 = [xv + (k - order / 2) * (h / 10) for k in range(order + 1)]
+            val_h   = sum(c * f(p) for c, p in zip(coeffs, pts_h))   / (h       ** order)
+            val_h10 = sum(c * f(p) for c, p in zip(coeffs, pts_h10)) / ((h / 10) ** order)
+            delta   = abs(val_h - val_h10)
+            ok      = delta < 1e-3
+            if not ok:
+                consistent = False
+            results.append((f"Spot x={xv:.2g}  h vs h/10",
+                             f"h={val_h:.6g}  h/10={val_h10:.6g}  Δ={delta:.2e}",
+                             "pass" if ok else "warn"))
+        except Exception:
+            results.append((f"Spot x={xv:.2g}", "eval error", "warn"))
+
+    overall = "PASS — approximation is stable ✔" if consistent \
+              else "WARN — result may be sensitive to h ⚠"
+    results.append(("Overall Status", overall, "pass" if consistent else "warn"))
+    return results
+
+
+def _comb(n, k):
+    import math
+    return math.comb(n, k)
 
 
 class NumericalEngine:
@@ -26,19 +107,15 @@ class NumericalEngine:
     Forward  : f'(x) ≈ [f(x+h) − f(x)]   / h          O(h)
     Backward : f'(x) ≈ [f(x)   − f(x−h)] / h          O(h)
     Central  : f'(x) ≈ [f(x+h) − f(x−h)] / 2h         O(h²)  ← default
-
-    Higher-order (n-th derivative via central difference, repeated):
-    Uses the generalised central-difference stencil coefficients.
     """
 
-    # ── public entry point ────────────────────────────────────────────────────
     def validate_and_compute(
         self,
         raw_fx:    str,
         raw_var:   str,
         raw_order: str,
         raw_point: str,
-        scheme:    str = "central",   # "forward" | "backward" | "central"
+        scheme:    str = "central",
         h:         float = H_DEFAULT,
     ) -> dict:
         import re as _re
@@ -60,7 +137,7 @@ class NumericalEngine:
             w(DIV + "\n", "dim")
 
         def kv(key, value, tag="step"):
-            w(f"   {key:<20}:  {value}\n", tag)
+            w(f"   {key:<30}:  {value}\n", tag)
 
         def blank():
             w("\n", "dim")
@@ -70,7 +147,6 @@ class NumericalEngine:
         w("║   SD SOLVER  —  SOLUTION TRAIL" + " " * 30 + "║\n", "header")
         w("╚" + "═" * 62 + "╝\n\n", "header")
 
-        # ── METHOD BADGE — clearly identifies which method is being used ──────
         w("   ┌─────────────────────────────────────────────┐\n", "dim")
         w("   │  METHOD :  Numerical Differentiation        │\n", "header")
         w("   │  ENGINE  :  Finite Difference (Approx.)     │\n", "dim")
@@ -87,7 +163,6 @@ class NumericalEngine:
         blank()
 
         # ── validation ────────────────────────────────────────────────────────
-        # Step 1 — f(x) not empty
         if not raw_fx:
             vsteps.append(self._step(1, "f(x) field — required, not empty",
                                      "FAIL", "f(x) cannot be empty."))
@@ -104,7 +179,6 @@ class NumericalEngine:
         else:
             vsteps.append(self._step(1, "f(x) field — required, not empty", "PASS"))
 
-            # Step 2 — SymPy parse
             sym_expr = None
             if not SYMPY_OK:
                 vsteps.append(self._step(2, "f(x) — SymPy parse check", "FAIL",
@@ -132,7 +206,6 @@ class NumericalEngine:
                 ]:
                     vsteps.append(self._step(n, lbl, "SKIP", "Skipped (parse failed)"))
             else:
-                # Step 3 — variable
                 var_str = raw_var if raw_var else "x"
                 if not (len(var_str) == 1 and var_str.isalpha()):
                     vsteps.append(self._step(3, "Variable — single alpha char", "FAIL",
@@ -144,7 +217,6 @@ class NumericalEngine:
                                              f"'{var_str}' is valid."))
                     result["var"] = var_str
 
-                # Step 4 — order integer
                 order_int = None
                 order_str = raw_order if raw_order else "1"
                 try:
@@ -160,7 +232,6 @@ class NumericalEngine:
                     result["field_errors"]["order"] = "Must be a whole number (1–10)."
                     result["ok"] = False
 
-                # Step 5 — order range
                 if order_int is not None:
                     if ORDER_MIN <= order_int <= ORDER_MAX:
                         vsteps.append(self._step(
@@ -178,7 +249,6 @@ class NumericalEngine:
                         5, f"Derivative order — range {ORDER_MIN}–{ORDER_MAX}",
                         "SKIP", "Skipped (invalid order)"))
 
-                # Step 6 — evaluation point (REQUIRED for numerical)
                 point_val = None
                 if not raw_point:
                     vsteps.append(self._step(6, "Evaluate at x — required for numerical",
@@ -221,6 +291,8 @@ class NumericalEngine:
         w("   ✔  All checks passed — proceeding to computation.\n\n", "pass")
 
         # ── compute ───────────────────────────────────────────────────────────
+        fx_lambda = None
+        approx    = None
         try:
             fx_lambda = self._make_lambda(raw_fx, result["var"])
             approx, fd_steps = self._finite_difference(
@@ -278,21 +350,21 @@ class NumericalEngine:
           f"  ≈  {result['answer']}\n", "answer")
         blank()
 
-        # ── VERIFICATION ──────────────────────────────────────────────────────
+        # ── VERIFICATION (ENHANCED) ───────────────────────────────────────────
         section("VERIFICATION")
-        kv("Method",  "Compare with smaller h (h/10)")
-        try:
-            approx2, _ = self._finite_difference(
-                fx_lambda, point_val, result["order"], scheme, h / 10
-            )
-            diff_val = abs(approx - approx2)
-            kv("h      result",  f"{approx:.8g}")
-            kv("h/10   result",  f"{approx2:.8g}")
-            kv("Δ (difference)", f"{diff_val:.3e}")
-            kv("Status", "Consistent ✔" if diff_val < 1e-4 else "Large Δ — check h ⚠",
-               "pass" if diff_val < 1e-4 else "warn")
-        except Exception:
-            kv("Status", "Verification skipped", "warn")
+        kv("Strategy A", "h-refinement  (h → h/2 → h/4 → h/10)")
+        kv("Strategy B", "Scheme cross-check  (fwd vs bwd vs central)")
+        kv("Strategy C", "5-point spot-check  (h vs h/10 residuals)")
+        blank()
+
+        ver_checks = _numerical_verify(fx_lambda, point_val, result["order"], scheme, h, approx)
+        result["verification"] = ver_checks
+
+        for label, value, status in ver_checks:
+            tag  = {"pass": "pass", "warn": "warn", "info": "verify"}.get(status, "step")
+            icon = {"pass": "✔", "warn": "⚠", "info": "→"}.get(status, " ")
+            w(f"   {icon}  {label:<34}  {value}\n", tag)
+
         blank()
 
         # ── SUMMARY ───────────────────────────────────────────────────────────
@@ -307,23 +379,16 @@ class NumericalEngine:
 
     # ── finite difference core ─────────────────────────────────────────────────
     def _finite_difference(self, f, x, order, scheme, h):
-        """
-        Returns (approximation, list_of_step_dicts).
-        Uses generalised central-difference stencil for any order n.
-        For forward/backward only 1st-order is formula-shown; higher orders
-        fall back to repeated application.
-        """
         steps = []
 
         def s(text, tag="step"):   steps.append({"text": text, "tag": tag})
         def d(text, tag="detail"): steps.append({"text": text, "tag": tag})
 
-        x0 = x  # evaluation point
+        x0 = x
 
         if order == 1:
             if scheme == "central":
-                fp = f(x0 + h)
-                fm = f(x0 - h)
+                fp = f(x0 + h); fm = f(x0 - h)
                 approx = (fp - fm) / (2 * h)
                 s(f"Central difference  n=1  at  x = {x0}")
                 d(f"f(x+h) = f({x0+h:.6g}) = {fp:.8g}")
@@ -331,40 +396,29 @@ class NumericalEngine:
                 d(f"[ f(x+h) - f(x-h) ] / 2h  =  [{fp:.6g} - {fm:.6g}] / {2*h:.2e}")
                 s(f"≈  {approx:.8g}", "answer")
             elif scheme == "forward":
-                fp = f(x0 + h)
-                f0 = f(x0)
+                fp = f(x0 + h); f0 = f(x0)
                 approx = (fp - f0) / h
                 s(f"Forward difference  n=1  at  x = {x0}")
                 d(f"f(x+h) = f({x0+h:.6g}) = {fp:.8g}")
                 d(f"f(x)   = f({x0:.6g})   = {f0:.8g}")
                 d(f"[ f(x+h) - f(x) ] / h  =  [{fp:.6g} - {f0:.6g}] / {h:.2e}")
                 s(f"≈  {approx:.8g}", "answer")
-            else:  # backward
-                f0 = f(x0)
-                fm = f(x0 - h)
+            else:
+                f0 = f(x0); fm = f(x0 - h)
                 approx = (f0 - fm) / h
                 s(f"Backward difference  n=1  at  x = {x0}")
                 d(f"f(x)   = f({x0:.6g})   = {f0:.8g}")
                 d(f"f(x-h) = f({x0-h:.6g}) = {fm:.8g}")
                 d(f"[ f(x) - f(x-h) ] / h  =  [{f0:.6g} - {fm:.6g}] / {h:.2e}")
                 s(f"≈  {approx:.8g}", "answer")
-
         else:
-            # Generalised central-difference stencil coefficients
-            # Using the formula: f^(n)(x) ≈ (1/h^n) * Σ_k C(n,k)*(-1)^(n-k)*f(x+(k-n/2)*h)
-            # Implemented as repeated central difference
+            import math
             s(f"Higher-order ({order}) central difference at x = {x0}")
             d(f"Apply central difference {order} time(s) recursively")
-
-            # Recursive application: D^n f ≈ D^(n-1)[ D f ]
-            # We use the central stencil coefficients via Pascal's triangle approach
-            import math
             coeffs = [(-1) ** (order - k) * math.comb(order, k) for k in range(order + 1)]
             points = [x0 + (k - order / 2) * h for k in range(order + 1)]
-
-            fvals = [f(p) for p in points]
+            fvals  = [f(p) for p in points]
             approx = sum(c * fv for c, fv in zip(coeffs, fvals)) / (h ** order)
-
             for i, (p, fv, c) in enumerate(zip(points, fvals, coeffs)):
                 d(f"f({p:.6g}) = {fv:.8g}   coeff = {c:+d}")
             d(f"Σ coeff·f(x_i) / h^{order}  =  {approx:.8g}")
@@ -372,14 +426,12 @@ class NumericalEngine:
 
         return approx, steps
 
-    # ── helpers ───────────────────────────────────────────────────────────────
     @staticmethod
     def _make_lambda(expr_str: str, var_str: str):
-        """Convert a SymPy-parseable string into a callable Python lambda."""
         from sympy import symbols as _sym, sympify as _sy, lambdify
-        x = _sym(var_str)
+        x    = _sym(var_str)
         expr = _sy(expr_str)
-        fn = lambdify(x, expr, modules=["numpy", "sympy"])
+        fn   = lambdify(x, expr, modules=["numpy", "sympy"])
         return fn
 
     @staticmethod
@@ -402,6 +454,7 @@ class NumericalEngine:
             "validation_steps": [],
             "field_errors":     {},
             "log":              [],
+            "verification":     [],
             "scheme":           scheme,
             "h":                h,
             "timestamp":        datetime.now().strftime("%Y-%m-%d  %H:%M:%S"),
