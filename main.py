@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext, font
+from tkinter import scrolledtext, font, filedialog
 from datetime import datetime
 import sys
 import threading
@@ -35,6 +35,7 @@ class DerivativeApp(tk.Tk):
         self.num_engine   = NumericalEngine()
         self._generating  = False
         self._last_result = None
+        self._last_log    = []
         self._method_var  = tk.StringVar(value="symbolic")
         self._scheme_var  = tk.StringVar(value="central")
         self._build_fonts()
@@ -157,7 +158,7 @@ class DerivativeApp(tk.Tk):
             relief="flat", bd=0, padx=10, pady=8, cursor="hand2",
             command=self._on_clear_or_stop,
         )
-        self.btn_clear.pack(fill="x")
+        self.btn_clear.pack(fill="x", pady=(0, 8))
 
     def _build_right(self, parent):
         ans_frame = tk.Frame(parent, bg=BG_PANEL, relief="flat")
@@ -182,6 +183,88 @@ class DerivativeApp(tk.Tk):
                  fg=ACCENT, bg=BG_DARK).pack(side="left")
         tk.Label(trail_hdr, text="(step-by-step audit log)",
                  font=self.f_sub, fg=TEXT_SEC, bg=BG_DARK).pack(side="left", padx=8)
+
+        # ── Export dropdown button ────────────────────────────────────────────
+        self._export_menu_open = False
+
+        export_anchor = tk.Frame(trail_hdr, bg=BG_DARK)
+        export_anchor.pack(side="right")
+
+        def _toggle_export_menu(event=None):
+            if self._export_menu_open:
+                _close_menu()
+                return
+            self._export_menu_open = True
+
+            menu = tk.Toplevel(self)
+            menu.overrideredirect(True)
+            menu.configure(bg=BORDER)
+            menu.attributes("-topmost", True)
+
+            # position below the button
+            export_anchor.update_idletasks()
+            bx = export_anchor.winfo_rootx()
+            by = export_anchor.winfo_rooty() + export_anchor.winfo_height()
+
+            inner = tk.Frame(menu, bg=BG_PANEL, padx=1, pady=1)
+            inner.pack(fill="both", expand=True)
+
+            def _pick_txt():
+                menu.destroy()
+                self._export_menu_open = False
+                self._export_txt()
+
+            def _pick_html():
+                menu.destroy()
+                self._export_menu_open = False
+                self._export_html()
+
+            def _close_menu(e=None):
+                try:
+                    menu.destroy()
+                except Exception:
+                    pass
+                self._export_menu_open = False
+
+            for label, cmd, color in [
+                ("📄  Export as .TXT",  _pick_txt,  ACCENT3),
+                ("🌐  Export as .HTML", _pick_html, GOLD),
+            ]:
+                btn = tk.Button(
+                    inner, text=label,
+                    font=self.f_sub,
+                    fg=color, bg=BG_PANEL,
+                    activebackground=BG_INPUT, activeforeground=color,
+                    relief="flat", bd=0,
+                    padx=14, pady=8,
+                    cursor="hand2", anchor="w",
+                    command=cmd,
+                )
+                btn.pack(fill="x")
+
+            # compute width after packing
+            menu.update_idletasks()
+            mw = menu.winfo_reqwidth()
+            # align right edge of menu with right edge of button
+            mx = bx + export_anchor.winfo_width() - mw
+            menu.geometry(f"+{mx}+{by}")
+
+            menu.bind("<FocusOut>", _close_menu)
+            menu.focus_set()
+            self._active_export_menu = menu
+
+        export_btn = tk.Button(
+            export_anchor,
+            text="⬇  EXPORT",
+            font=self.f_sub,
+            fg=BG_DARK, bg=GOLD,
+            activebackground="#E6B800", activeforeground=BG_DARK,
+            relief="flat", bd=0,
+            padx=10, pady=4,
+            cursor="hand2",
+            command=_toggle_export_menu,
+        )
+        export_btn.pack(side="right")
 
         trail_container = tk.Frame(parent, bg=BORDER, pady=1, padx=1)
         trail_container.pack(fill="both", expand=True, pady=(6, 4))
@@ -213,6 +296,319 @@ class DerivativeApp(tk.Tk):
                                    font=self.f_sub, fg=TEXT_SEC, bg=BG_DARK, anchor="w")
         self.lbl_status.pack(fill="x", pady=(2, 0))
 
+    # ── Export helpers ────────────────────────────────────────────────────────
+
+    def _show_notify(self, kind: str, title: str, message: str):
+        """
+        Custom themed notification popup.
+        kind: "success" | "error" | "warning"
+        """
+        KIND_MAP = {
+            "success": (OK_GRN,   "✔",  "EXPORT SUCCESSFUL"),
+            "error":   (ERR_RED,  "✘",  "EXPORT FAILED"),
+            "warning": (WARN_YEL, "⚠",  "NOTHING TO EXPORT"),
+        }
+        accent, icon, badge = KIND_MAP.get(kind, (ACCENT, "ℹ", title.upper()))
+
+        popup = tk.Toplevel(self)
+        popup.title(title)
+        popup.configure(bg=BG_PANEL)
+        popup.resizable(False, False)
+        popup.grab_set()
+        popup.attributes("-topmost", True)
+
+        # top accent bar
+        tk.Frame(popup, bg=accent, height=4).pack(fill="x")
+
+        # ── header row ────────────────────────────────────────────────────────
+        hdr = tk.Frame(popup, bg=BG_PANEL, padx=24, pady=16)
+        hdr.pack(fill="x")
+
+        # icon circle
+        icon_lbl = tk.Label(
+            hdr,
+            text=icon,
+            font=font.Font(family="Courier New", size=20, weight="bold"),
+            fg=accent, bg=BG_PANEL,
+            width=2,
+        )
+        icon_lbl.pack(side="left", padx=(0, 14))
+
+        title_col = tk.Frame(hdr, bg=BG_PANEL)
+        title_col.pack(side="left", fill="x", expand=True)
+        tk.Label(
+            title_col,
+            text=badge,
+            font=font.Font(family="Courier New", size=11, weight="bold"),
+            fg=accent, bg=BG_PANEL,
+            anchor="w",
+        ).pack(anchor="w")
+        tk.Label(
+            title_col,
+            text=title,
+            font=font.Font(family="Courier New", size=9),
+            fg=TEXT_SEC, bg=BG_PANEL,
+            anchor="w",
+        ).pack(anchor="w", pady=(2, 0))
+
+        # ── divider ───────────────────────────────────────────────────────────
+        tk.Frame(popup, bg=BORDER, height=1).pack(fill="x", padx=20)
+
+        # ── message body ──────────────────────────────────────────────────────
+        msg_frame = tk.Frame(popup, bg=BG_INPUT, padx=20, pady=14)
+        msg_frame.pack(fill="x", padx=20, pady=14)
+
+        tk.Label(
+            msg_frame,
+            text=message,
+            font=font.Font(family="Courier New", size=9),
+            fg=TEXT_PRI, bg=BG_INPUT,
+            justify="left",
+            wraplength=360,
+            anchor="w",
+        ).pack(anchor="w")
+
+        # ── divider ───────────────────────────────────────────────────────────
+        tk.Frame(popup, bg=BORDER, height=1).pack(fill="x", padx=20)
+
+        # ── OK button ─────────────────────────────────────────────────────────
+        btn_row = tk.Frame(popup, bg=BG_PANEL, padx=20, pady=12)
+        btn_row.pack(fill="x")
+
+        tk.Button(
+            btn_row,
+            text="  OK  ",
+            font=font.Font(family="Courier New", size=10, weight="bold"),
+            fg=BG_DARK, bg=accent,
+            activebackground=BG_INPUT, activeforeground=accent,
+            relief="flat", bd=0,
+            padx=20, pady=6,
+            cursor="hand2",
+            command=popup.destroy,
+        ).pack(side="right")
+
+        # center over main window
+        self.update_idletasks()
+        popup.update_idletasks()
+        mx = self.winfo_x() + (self.winfo_width()  // 2) - (popup.winfo_reqwidth()  // 2)
+        my = self.winfo_y() + (self.winfo_height() // 2) - (popup.winfo_reqheight() // 2)
+        popup.geometry(f"+{mx}+{my}")
+
+    def _get_trail_text(self) -> str:
+        """Return the full plain text currently shown in the trail widget."""
+        self.trail_text.configure(state="normal")
+        content = self.trail_text.get("1.0", "end")
+        self.trail_text.configure(state="disabled")
+        return content
+
+    def _get_trail_log(self) -> list:
+        """Return the raw (text, tag) log list from the logger."""
+        return self.logger.get_log()
+
+    def _export_txt(self):
+        """Save the full trail as a plain-text .txt file."""
+        content = self._get_trail_text().strip()
+        if not content or content == "—":
+            self._show_notify(
+                "warning",
+                "Nothing to Export",
+                "The solution trail is empty.\nPlease compute a derivative first.",
+            )
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Trail as TXT",
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+            initialfile=f"sd_solver_trail_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        )
+        if not filepath:
+            return
+
+        header_line = (
+            "SD SOLVER — Solution Trail Export\n"
+            f"Exported : {datetime.now().strftime('%Y-%m-%d  %H:%M:%S')}\n"
+            + "=" * 64 + "\n\n"
+        )
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(header_line + content)
+            self._show_notify(
+                "success",
+                "Export Successful",
+                f"Trail saved to:\n{filepath}",
+            )
+        except Exception as exc:
+            self._show_notify("error", "Export Failed", str(exc))
+
+    def _export_html(self):
+        """Save the full trail as a styled .html file."""
+        content_check = self._get_trail_text().strip()
+        if not content_check:
+            self._show_notify(
+                "warning",
+                "Nothing to Export",
+                "The solution trail is empty.\nPlease compute a derivative first.",
+            )
+            return
+
+        # Use the stored log from last computation for accurate colour tags.
+        # Fall back to a plain single-entry log if somehow empty.
+        log = self._last_log if self._last_log else [(content_check, "step")]
+
+        filepath = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Trail as HTML",
+            defaultextension=".html",
+            filetypes=[("HTML Files", "*.html"), ("All Files", "*.*")],
+            initialfile=f"sd_solver_trail_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+        )
+        if not filepath:
+            return
+
+        # Tag → CSS colour mapping (mirrors the tkinter tag colours)
+        TAG_COLORS = {
+            "header":  "#7DF9C2",
+            "section": "#F97DDB",
+            "step":    "#E8EAF0",
+            "answer":  "#FFD166",
+            "verify":  "#7DDBF9",
+            "summary": "#8890A6",
+            "dim":     "#8890A6",
+            "rule":    "#FFD166",
+            "pass":    "#7DF9C2",
+            "fail":    "#FF6B6B",
+            "warn":    "#FFD166",
+        }
+
+        TAG_WEIGHTS = {
+            "header":  "bold",
+            "section": "bold",
+            "answer":  "bold",
+        }
+
+        def escape_html(text: str) -> str:
+            return (
+                text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace(" ", "&nbsp;")
+                    .replace("\n", "<br>\n")
+            )
+
+        body_html = ""
+        for text, tag in log:
+            color  = TAG_COLORS.get(tag, "#E8EAF0")
+            weight = TAG_WEIGHTS.get(tag, "normal")
+            body_html += (
+                f'<span style="color:{color};font-weight:{weight};">'
+                f'{escape_html(text)}</span>'
+            )
+
+        timestamp = datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SD Solver — Solution Trail</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+    body {{
+      background: #0D0F14;
+      color: #E8EAF0;
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.65;
+      padding: 32px 16px;
+    }}
+
+    .wrapper {{
+      max-width: 860px;
+      margin: 0 auto;
+    }}
+
+    /* ── Top banner ── */
+    .banner {{
+      background: #13161E;
+      border-left: 4px solid #7DF9C2;
+      padding: 18px 28px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+    .banner-title {{
+      color: #7DF9C2;
+      font-size: 18px;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }}
+    .banner-meta {{
+      color: #8890A6;
+      font-size: 11px;
+    }}
+
+    /* ── Trail box ── */
+    .trail-box {{
+      background: #1A1E2A;
+      border: 1px solid #252B3B;
+      border-radius: 4px;
+      padding: 24px 28px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.7;
+    }}
+
+    /* ── Footer ── */
+    .footer {{
+      margin-top: 20px;
+      color: #8890A6;
+      font-size: 10px;
+      text-align: right;
+      letter-spacing: 1px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+
+    <div class="banner">
+      <div class="banner-title">∂&nbsp;&nbsp;SD SOLVER — SOLUTION TRAIL</div>
+      <div class="banner-meta">Exported: {timestamp}</div>
+    </div>
+
+    <div class="trail-box">
+{body_html}
+    </div>
+
+    <div class="footer">
+      Generated by SD Solver &nbsp;|&nbsp; {timestamp}
+    </div>
+
+  </div>
+</body>
+</html>
+"""
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(html)
+            self._show_notify(
+                "success",
+                "Export Successful",
+                f"Trail saved to:\n{filepath}",
+            )
+        except Exception as exc:
+            self._show_notify("error", "Export Failed", str(exc))
+
     # ── method selection popup ────────────────────────────────────────────────
     # ── about / help dialog ───────────────────────────────────────────────────
     def _show_about(self):
@@ -223,7 +619,6 @@ class DerivativeApp(tk.Tk):
         popup.minsize(500, 550)
         popup.grab_set()
 
-        # Scrollable container
         container = tk.Frame(popup, bg=BG_PANEL)
         container.pack(fill="both", expand=True)
 
@@ -242,10 +637,8 @@ class DerivativeApp(tk.Tk):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # ===== CONTENT =====
         tk.Frame(scroll_frame, bg=ACCENT2, height=5).pack(fill="x")
 
-        # HEADER
         hdr = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=18)
         hdr.pack(fill="x")
         tk.Label(hdr, text="∂  SD SOLVER",
@@ -257,7 +650,6 @@ class DerivativeApp(tk.Tk):
 
         tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24)
 
-        # INFO
         info = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
         info.pack(fill="x")
 
@@ -279,7 +671,6 @@ class DerivativeApp(tk.Tk):
 
         tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
 
-        # MEMBERS
         mem = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
         mem.pack(fill="x")
         tk.Label(mem, text="PROJECT MEMBERS",
@@ -301,7 +692,6 @@ class DerivativeApp(tk.Tk):
 
         tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
 
-        # HELP
         hlp = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=14)
         hlp.pack(fill="x")
         tk.Label(hlp, text="HOW TO USE",
@@ -309,19 +699,22 @@ class DerivativeApp(tk.Tk):
                  fg=ACCENT2, bg=BG_PANEL).pack(anchor="w", pady=(0, 6))
 
         help_lines = [
-            ("f(x)", "Enter function in Python syntax. e.g. x**3 + 2*x"),
-            ("Variable", "Single letter (x, y, t)"),
-            ("Order", "1–10"),
-            ("Evaluate", "Optional value"),
-            ("COMPUTE", "Runs solver"),
-            ("STOP", "Stops animation"),
-            ("CLEAR", "Resets fields"),
+            ("f(x)",         "Enter function in Python syntax. e.g. x**3 + 2*x"),
+            ("Variable",     "Single letter (x, y, t)"),
+            ("Order",        "1–10"),
+            ("Evaluate",     "Optional value"),
+            ("COMPUTE",      "Runs solver"),
+            ("STOP",         "Stops animation"),
+            ("CLEAR",        "Resets fields"),
+            ("⬇ EXPORT",    "Dropdown beside SOLUTION TRAIL header"),
+            ("  → .TXT",    "Save trail as plain text file"),
+            ("  → .HTML",   "Save trail as styled HTML file"),
         ]
 
         for field, desc in help_lines:
             f = tk.Frame(hlp, bg=BG_PANEL)
             f.pack(fill="x", pady=2)
-            tk.Label(f, text=f"{field:<12}",
+            tk.Label(f, text=f"{field:<16}",
                      font=font.Font(family="Courier New", size=9, weight="bold"),
                      fg=GOLD, bg=BG_PANEL).pack(side="left")
             tk.Label(f, text=desc,
@@ -331,7 +724,6 @@ class DerivativeApp(tk.Tk):
 
         tk.Frame(scroll_frame, bg=BORDER, height=1).pack(fill="x", padx=24, pady=(4, 0))
 
-        # CLOSE BUTTON
         btn_f = tk.Frame(scroll_frame, bg=BG_PANEL, padx=28, pady=12)
         btn_f.pack(fill="x")
         tk.Button(btn_f, text="CLOSE",
@@ -350,10 +742,8 @@ class DerivativeApp(tk.Tk):
         popup_method = tk.StringVar(value=self._method_var.get())
         popup_scheme = tk.StringVar(value=self._scheme_var.get())
 
-        # top accent bar
         tk.Frame(popup, bg=ACCENT, height=4).pack(fill="x")
 
-        # title
         title_frame = tk.Frame(popup, bg=BG_PANEL, padx=28, pady=16)
         title_frame.pack(fill="x")
         tk.Label(title_frame,
@@ -370,7 +760,6 @@ class DerivativeApp(tk.Tk):
         content = tk.Frame(popup, bg=BG_PANEL, padx=28, pady=18)
         content.pack(fill="x")
 
-        # Symbolic card
         sym_card = tk.Frame(content, bg=BG_INPUT, pady=10, padx=14)
         sym_card.pack(fill="x", pady=(0, 10))
 
@@ -391,7 +780,6 @@ class DerivativeApp(tk.Tk):
                  font=font.Font(family="Courier New", size=8),
                  fg=TEXT_SEC, bg=BG_INPUT, justify="left").pack(anchor="w", pady=(2, 0))
 
-        # Numerical card
         num_card = tk.Frame(content, bg=BG_INPUT, pady=10, padx=14)
         num_card.pack(fill="x", pady=(0, 6))
 
@@ -412,7 +800,6 @@ class DerivativeApp(tk.Tk):
                  font=font.Font(family="Courier New", size=8),
                  fg=TEXT_SEC, bg=BG_INPUT, justify="left").pack(anchor="w", pady=(2, 0))
 
-        # Scheme sub-selector inside numerical card
         scheme_frame = tk.Frame(num_card, bg=BG_INPUT)
         tk.Label(scheme_frame,
                  text="     Scheme:",
@@ -443,13 +830,11 @@ class DerivativeApp(tk.Tk):
         rb_sym.config(command=hide_scheme)
         rb_num.config(command=show_scheme)
 
-        # show scheme if numerical already selected
         if popup_method.get() == "numerical":
             show_scheme()
 
         tk.Frame(popup, bg=BORDER, height=1).pack(fill="x", padx=20)
 
-        # buttons
         btn_frame = tk.Frame(popup, bg=BG_PANEL, padx=28, pady=14)
         btn_frame.pack(fill="x")
 
@@ -481,7 +866,6 @@ class DerivativeApp(tk.Tk):
                   relief="flat", bd=0, padx=14, pady=7, cursor="hand2",
                   command=popup.destroy).pack(side="right")
 
-        # center over main window
         self.update_idletasks()
         popup.update_idletasks()
         mx = self.winfo_x() + (self.winfo_width()  // 2) - (popup.winfo_width()  // 2)
@@ -578,6 +962,7 @@ class DerivativeApp(tk.Tk):
     def _do_clear(self):
         self._clear_all_errors()
         self.logger.clear()
+        self._last_log = []
         self.lbl_answer.config(text="—", fg=GOLD)
         self.lbl_method_badge.config(text="—", bg=TEXT_SEC)
         self.lbl_status.config(fg=TEXT_SEC)
@@ -682,6 +1067,7 @@ class DerivativeApp(tk.Tk):
             )
 
         full_log = result.get("log", [])
+        self._last_log = full_log          # keep for HTML export
 
         if not result["ok"]:
             self.lbl_answer.config(text="Error — see trail", fg=ERR_RED)

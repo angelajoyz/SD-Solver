@@ -150,9 +150,12 @@ class DerivativeEngine:
             w("\n", "dim")
 
         # ── header ────────────────────────────────────────────────────────────
-        w("╔" + "═" * 62 + "╗\n", "header")
-        w("║   SD SOLVER  —  SOLUTION TRAIL" + " " * 30 + "║\n", "header")
-        w("╚" + "═" * 62 + "╝\n\n", "header")
+        _box_inner = 62
+        _box_text  = "   SD SOLVER  —  SOLUTION TRAIL"
+        _box_pad   = _box_inner - len(_box_text)
+        w("╔" + "═" * _box_inner + "╗\n", "header")
+        w("║" + _box_text + " " * _box_pad + "║\n", "header")
+        w("╚" + "═" * _box_inner + "╝\n\n", "header")
 
         w("   ┌─────────────────────────────────────────────┐\n", "dim")
         w("   │  METHOD :  Symbolic Differentiation         │\n", "header")
@@ -326,8 +329,26 @@ class DerivativeEngine:
         # ── METHOD ────────────────────────────────────────────────────────────
         section("METHOD")
         kv("Name", "Symbolic Differentiation (Basic Rules)")
-        kv("Rules applied", "Power, Constant, Sum/Difference,")
-        w("   Constant Multiple, Chain, Product, Quotient\n", "dim")
+
+        # Dynamically collect only the rules actually used in the steps trail
+        _used_rules = []
+        _rule_keywords = [
+            ("Power Rule",             "Power Rule"),
+            ("Constant Rule",          "Constant Rule"),
+            ("Sum / Difference Rule",  "Sum"),
+            ("Constant Multiple Rule", "Constant Multiple"),
+            ("Chain Rule",             "Chain Rule"),
+            ("Product Rule",           "Product Rule"),
+            ("Quotient Rule",          "Quotient Rule"),
+        ]
+        for _step in rule_result.get("steps", []):
+            _txt = _step.get("text", "")
+            for _label, _keyword in _rule_keywords:
+                if _keyword in _txt and _label not in _used_rules:
+                    _used_rules.append(_label)
+
+        _rules_str = ", ".join(_used_rules) if _used_rules else "General Rule (SymPy)"
+        kv("Rules applied", _rules_str)
         kv("Library", f"SymPy {SYMPY_VERSION}")
         blank()
 
